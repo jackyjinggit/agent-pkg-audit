@@ -18,7 +18,7 @@
     {
       "id": "abs_windows_path",
       "severity": "blocker",
-      "pattern": "[A-Za-z]:\\\\+[^\\s\"'`]*",
+      "pattern": "[A-Za-z]:\\\\+(?![nrtbfv0xuU\\\\])(?:[A-Za-z0-9_.\\-~$]{1,}|[uU]ser?s?\\\\)[^\\s\"'`]*|[A-Za-z]:\\\\+[uU]sers?\\\\[^\\s\"'`]*",
       "message": "absolute Windows path",
       "except": [
         "^[A-Za-z]:\\\\\\$",

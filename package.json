@@ -1,6 +1,6 @@
 {
   "name": "agent-pkg-audit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Zero-dependency, read-only pre-publish gate for agent packages and agent repos: scans for secrets, PII, absolute local paths, manifest drift, broken skill references and instruction drift. Exits non-zero so CI can block a release.",
   "keywords": [
     "agent",

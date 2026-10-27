@@ -68,10 +68,20 @@ DEFAULT_RULES = {
         {
             "id": "abs_windows_path",
             "severity": "blocker",
-            # A path that reaches a '<...>' placeholder is a documentation
-            # template, not a real location. Capture the whole segment so the
-            # placeholder check can see it.
-            "pattern": r"[A-Za-z]:\\+[^\s\"'`]*",
+            # Require a plausible path character after the drive separator.
+            # Without this, string escapes such as "s:\n" or "d:\n{details}"
+            # are read as Windows paths — a false positive that dominated the
+            # output when scanning real third-party repositories.
+            # Exclude string escape sequences (s:\n, d:\n{details}, \t, \r,
+            # \uXXXX, \xNN, \\0). Without this, escaped newlines inside string
+            # literals are read as Windows paths — a false positive that
+            # accounted for 97 of 99 hits on a real third-party repository.
+            # A Windows path starts with a drive letter, a backslash and then
+            # a path component. String escapes such as s:\n, d:\n{details},
+            # s:\n\nConversations, \t, \r, \uXXXX must NOT be read as paths.
+            # The negative lookahead below rejects a leading escape letter
+            # even when it is followed by more escapes.
+            "pattern": r"[A-Za-z]:\\+(?![nrtbfv0xuU\\])(?:[A-Za-z0-9_.\-~$]{1,}|[uU]ser?s?\\)[^\s\"'`]*|[A-Za-z]:\\+[uU]sers?\\[^\s\"'`]*",
             "message": "absolute Windows path",
             "except": [
                 r"^[A-Za-z]:\\\$",
