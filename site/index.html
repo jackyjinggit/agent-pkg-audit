@@ -225,27 +225,36 @@ agent-pkg-audit ./my-agent-package</pre>
 </section>
 
 <section>
-  <h2><span class="num">05</span>Custom rules</h2>
+  <h2><span class="num">05</span>Protect your own project</h2>
   <p class="sub">
-    Rules are plain JSON. Copy <code>rules/default.json</code>, edit it, pass it with
-    <code>--rules</code>. Later files win on rule <code>id</code>, so you can override a
-    default or add your own — without touching the tool.
+    Real names, internal codenames and private vocabulary belong to your project —
+    not to a general-purpose tool. The shipped defaults stay neutral; you add yours
+    with <code>--rules</code>.
   </p>
   <div class="install2">
 <pre class="code">{
-  <span class="k">"pii"</span>: [
+  <span class="k">"_comment"</span>: <span class="k">"documentation keys are ignored"</span>,
+  <span class="k">"persona"</span>: [
+    {
+      <span class="k">"id"</span>: <span class="k">"persona_real_name"</span>,
+      <span class="k">"severity"</span>: <span class="k">"blocker"</span>,
+      <span class="k">"pattern"</span>: <span class="k">"Your\\s+Name"</span>,
+      <span class="k">"message"</span>: <span class="k">"real name inside runtime content"</span>
+    }
+  ],
+  <span class="k">"codename"</span>: [
     {
       <span class="k">"id"</span>: <span class="k">"internal_codename"</span>,
-      <span class="k">"severity"</span>: <span class="k">"blocker"</span>,
-      <span class="k">"pattern"</span>: <span class="k">"(?i)project\\s+[\\u4e00-\\u9fa5]{2,6}"</span>,
-      <span class="k">"message"</span>: <span class="k">"internal codename leaked"</span>,
-      <span class="k">"except"</span>: [<span class="k">"\\bexample\\b"</span>]
+      <span class="k">"severity"</span>: <span class="k">"warning"</span>,
+      <span class="k">"pattern"</span>: <span class="k">"(?:PROJECT|TEAM|INTERNAL)"</span>,
+      <span class="k">"message"</span>: <span class="k">"internal codename"</span>
     }
   ]
 }</pre>
     <p style="font-size:13.5px;color:var(--ink-500);margin-top:14px">
-      <b style="color:var(--ink-700)">severity</b> — <code>blocker</code> exits 1, <code>warning</code> exits 0 &nbsp;·&nbsp;
-      <b style="color:var(--ink-700)">except</b> — a match is ignored if any of these regexes matches it
+      <b style="color:var(--ink-700)">persona</b> applies to runtime content only — a name in a system prompt is a leak, the same name in a README signature is attribution. &nbsp;
+      <b style="color:var(--ink-700)">codename</b> applies everywhere. &nbsp;
+      <b style="color:var(--ink-700)">except</b> — a match is ignored if any of these regexes matches it.
     </p>
   </div>
 </section>

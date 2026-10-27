@@ -10,20 +10,24 @@
         "@example\\.(com|org|net)$",
         "@users\\.noreply\\.github\\.com$",
         "@company\\.internal$",
-        "@internal\\.example$"
+        "@internal\\.example$",
+        "^git@",
+        "@github\\.com$"
       ]
     },
     {
       "id": "abs_windows_path",
       "severity": "blocker",
       "pattern": "[A-Za-z]:\\\\+[^\\s\"'`]*",
-      "message": "absolute Windows path"
+      "message": "absolute Windows path",
+      "except": ["^[A-Za-z]:\\\\\\$", "^[A-Za-z]:\\\\\\$\\{", "^[A-Za-z]:\\\\\\.\\.\\."]
     },
     {
       "id": "abs_posix_home_path",
       "severity": "blocker",
       "pattern": "/(?:home|Users)/[A-Za-z0-9._-]+/[^\\s\"'`]*",
-      "message": "absolute home path"
+      "message": "absolute home path",
+      "except": ["/(?:home|Users)/you/"]
     },
     {
       "id": "secret_assignment",
@@ -42,6 +46,15 @@
       "severity": "blocker",
       "pattern": "\\b[1-9]\\d{5}(?:19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[\\dXx]\\b",
       "message": "national ID number"
+    }
+  ],
+  "persona": [],
+  "codename": [
+    {
+      "id": "workflow_leak_marker",
+      "severity": "warning",
+      "pattern": "(?:鸿窗|议窗|天璇|归藏|启明|玄览|墨章|砚)\\s*(?:执行|授权|执行人)",
+      "message": "internal workflow reference — meaningless outside the project"
     }
   ],
   "portability": [

@@ -60,6 +60,9 @@ DEFAULT_RULES = {
                 r"@users\.noreply\.github\.com$",
                 r"@company\.internal$",
                 r"@internal\.example$",
+                # scp-style git remotes are not email addresses
+                r"^git@",
+                r"@github\.com$",
             ],
         },
         {
@@ -67,12 +70,15 @@ DEFAULT_RULES = {
             "severity": "blocker",
             "pattern": r"[A-Za-z]:\\+[^\s\"'`]*",
             "message": "absolute Windows path",
+            "except": [r"^[A-Za-z]:\\\$", r"^[A-Za-z]:\\\$\{", r"^[A-Za-z]:\\\.\.\."],
         },
         {
             "id": "abs_posix_home_path",
             "severity": "blocker",
             "pattern": r"/(?:home|Users)/[A-Za-z0-9._-]+/[^\s\"'`]*",
             "message": "absolute home path",
+            # "you" is the documentation placeholder, not a real home dir
+            "except": [r"/(?:home|Users)/you/"],
         },
         {
             "id": "secret_assignment",
@@ -91,6 +97,23 @@ DEFAULT_RULES = {
             "severity": "blocker",
             "pattern": r"\b[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]\b",
             "message": "national ID number",
+        },
+    ],
+    # Applied only to runtime content (agent / skill / prompt files).
+    # A real person's name in a system prompt is a leak; the same name in a
+    # README signature line is attribution. Only the former is a defect.
+    #
+    # The shipped defaults are deliberately empty: real names and internal
+    # codenames are project-specific, so hard-coding one project's names would
+    # make this tool meaningless to everyone else. Add your own with --rules.
+    # See the README section "Protecting your own project".
+    "persona": [],
+    "codename": [
+        {
+            "id": "workflow_leak_marker",
+            "severity": "warning",
+            "pattern": r"(?:鸿窗|议窗|天璇|归藏|启明|玄览|墨章|砚)\s*(?:执行|授权|执行人)",
+            "message": "internal workflow reference — meaningless outside the project",
         },
     ],
     "portability": [
@@ -133,9 +156,20 @@ def load_rules(extra_path=None):
                 print("! could not read rules file %s: %s" % (path, exc), file=sys.stderr)
                 continue
             for category, items in (extra or {}).items():
+                if category.startswith("_"):
+                    # keys like "_comment" are documentation, not rules
+                    continue
+                if not isinstance(items, list):
+                    print("! rules file %s: category %r is not a list, skipped"
+                          % (path, category), file=sys.stderr)
+                    continue
                 bucket = rules.setdefault(category, [])
-                index = {r["id"]: i for i, r in enumerate(bucket)}
+                index = {r["id"]: i for i, r in enumerate(bucket) if isinstance(r, dict)}
                 for item in items:
+                    if not isinstance(item, dict):
+                        print("! rules file %s: rule entry in %r is not an object, skipped"
+                              % (path, category), file=sys.stderr)
+                        continue
                     if item.get("id") in index:
                         bucket[index[item["id"]]] = item
                     else:
@@ -223,12 +257,30 @@ def parse_frontmatter(text):
 # --------------------------------------------------------------------------
 # Scanning
 # --------------------------------------------------------------------------
-def scan_text(text, rel, rules):
-    """Return (blockers, warnings) for one file."""
+def scan_text(text, rel, rules, runtime=False):
+    """Return (blockers, warnings) for one file.
+
+    A rule may declare its own scope:
+      "scope": "runtime"  — only applied to model-visible content
+      "scope": "all"      — applied everywhere (default)
+      "scope": "docs"     — applied only to documentation
+    The `runtime` argument is the fallback used when a rule declares no
+    scope but lives in a category that defaults to runtime-only.
+    """
     blockers, warnings = [], []
-    for category, default_severity in (("pii", "blocker"), ("portability", "warning")):
+    categories = [("pii", "blocker"), ("portability", "warning"),
+                  ("codename", "warning"), ("persona", "blocker")]
+    is_doc = rel.replace(os.sep, "/").lower().startswith(("docs/", "readme", "contributing", "license"))
+    for category, default_severity in categories:
         for rule in rules.get(category, []):
             severity = rule.get("severity", default_severity)
+            scope = rule.get("scope")
+            if scope is None:
+                scope = "runtime" if category == "persona" else "all"
+            if scope == "runtime" and not runtime:
+                continue
+            if scope == "docs" and not is_doc:
+                continue
             for match in rule["_re"].finditer(text):
                 snippet = match.group(0)
                 if any(rx.search(snippet) for rx in rule["_except_res"]):
@@ -241,10 +293,15 @@ def scan_text(text, rel, rules):
     return blockers, warnings
 
 
-def list_files(root, extensions):
+def list_files(root, extensions, exclude_dirs=None):
+    """Collect files with the given extensions, skipping build/VCS noise and
+    any directory listed in `exclude_dirs` (by name, matched at any depth)."""
+    skip = {".git", "node_modules", "__pycache__", ".venv", "dist", "build"}
+    if exclude_dirs:
+        skip |= set(exclude_dirs)
     out = []
     for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in (".git", "node_modules", "__pycache__", ".venv", "dist", "build")]
+        dirs[:] = [d for d in dirs if d not in skip]
         for name in files:
             if name.endswith(extensions):
                 out.append(os.path.join(base, name))
@@ -273,7 +330,7 @@ def discover_packages(repo):
     return found
 
 
-def audit(repo, rules, report_path=None):
+def audit(repo, rules, report_path=None, exclude_dirs=None):
     repo = os.path.abspath(repo)
     blockers, warnings = [], []
     packages = discover_packages(repo)
@@ -322,13 +379,14 @@ def audit(repo, rules, report_path=None):
     # ---- B/C/E. content scan ---------------------------------------------
     print("")
     print("## B. Secret / PII gate | C. Portability | E. Static fault proxies")
-    scan_targets = []
-    for pkg in packages:
-        pdir = os.path.join(repo, pkg) if pkg != "." else repo
-        scan_targets += list_files(pdir, (".md", ".json", ".yaml", ".yml", ".js", ".mjs", ".ts", ".py", ".toml"))
-        manifest = os.path.join(pdir, ".codebuddy-plugin", "plugin.json")
-        if os.path.exists(manifest):
-            scan_targets.append(manifest)
+    # Scan the whole repository, not just detected agent packages. A repo may
+    # ship no agent package at all and still contain a leaked credential in a
+    # script or a doc.
+    scan_targets = list_files(
+        repo,
+        (".md", ".json", ".yaml", ".yml", ".js", ".mjs", ".ts", ".py", ".toml", ".txt", ".sh"),
+        exclude_dirs=exclude_dirs,
+    )
     for extra in ("README.md", "LICENSE", "COPYING", "NOTICE", "package.json"):
         candidate = os.path.join(repo, extra)
         if os.path.exists(candidate):
@@ -347,7 +405,14 @@ def audit(repo, rules, report_path=None):
         except Exception:
             continue
         rel = os.path.relpath(path, repo)
-        file_blockers, file_warnings = scan_text(text, rel, rules)
+        rel_norm = rel.replace(os.sep, "/")
+        # "Runtime content" = anything that becomes model-visible behaviour:
+        # agent prompts, skill definitions, plugin manifests — and source
+        # files, whose comments and docstrings ship with the package.
+        # Pure documentation (README, docs/, LICENSE) is attribution, not runtime.
+        is_doc = rel_norm.lower().startswith(("docs/", "readme", "contributing", "license", "notice"))
+        is_runtime = not is_doc
+        file_blockers, file_warnings = scan_text(text, rel, rules, runtime=is_runtime)
         for entry in file_blockers:
             pii_total += 1
             blockers.append(("secret/pii", entry[1], "%s: %s" % (entry[3], entry[2])))
@@ -356,7 +421,6 @@ def audit(repo, rules, report_path=None):
             warnings.append(("portability", entry[1], "%s: %s" % (entry[3], entry[2])))
             print("- WARN   %s -> [%s] %s" % (entry[1], entry[0], entry[2]))
 
-        rel_norm = rel.replace(os.sep, "/")
         if path.endswith(".md") and ("/agents/" in "/" + rel_norm):
             fm, body, status = parse_frontmatter(text)
             if status != "ok":
@@ -460,6 +524,7 @@ def main(argv=None):
     repo = "."
     rules_path = None
     report_path = None
+    exclude_dirs = []
     positional = []
     i = 0
     while i < len(argv):
@@ -473,6 +538,9 @@ def main(argv=None):
         elif arg == "--report":
             i += 1
             report_path = argv[i]
+        elif arg == "--exclude":
+            i += 1
+            exclude_dirs.append(argv[i])
         elif arg in ("-v", "--version"):
             print(__version__)
             return 0
@@ -488,7 +556,7 @@ def main(argv=None):
         print("! not a directory: %s" % repo, file=sys.stderr)
         return 2
     rules = load_rules(rules_path)
-    return audit(repo, rules, report_path)
+    return audit(repo, rules, report_path, exclude_dirs=exclude_dirs)
 
 
 if __name__ == "__main__":

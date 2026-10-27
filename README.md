@@ -85,6 +85,7 @@ agent-pkg-audit [path] [--rules <file>] [--report <file>] [--version] [--help]
 | `[path]` | Repository or package to audit. Default: current directory. |
 | `--rules <file>` | Extra / overriding rule file (JSON). Merged over the defaults. |
 | `--report <file>` | Write a Markdown report to this path. |
+| `--exclude <dir>` | Skip a directory by name, at any depth. Repeatable. |
 | `--version` | Print the version. |
 | `--help` | Print full usage. |
 
@@ -166,8 +167,51 @@ your own.
 | `pattern` | Regular expression, Python syntax. |
 | `message` | Human-readable explanation shown in the report. |
 | `except` | Optional list of regexes. A match is ignored if any of them matches. |
+| `scope` | Optional. `all` (default), `runtime`, or `docs`. See below. |
 
-Two categories ship by default: `pii` and `portability`. You may add more.
+### Protecting your own project
+
+Real names, internal codenames and private vocabulary are specific to your
+project. Hard-coding one project's names into the tool would make it
+meaningless to everyone else — so the shipped defaults stay neutral, and you
+add your own via `--rules`.
+
+A rule in the `persona` category applies to **runtime content** only: source
+files, agent prompts, skill definitions. A real person's name inside a system
+prompt is a leak. The same name in a README signature line is attribution, and
+flagging it would be wrong.
+
+```json
+{
+  "_comment": "documentation keys starting with _ are ignored",
+  "persona": [
+    {
+      "id": "persona_real_name",
+      "severity": "blocker",
+      "pattern": "Your\\s+Name",
+      "message": "real name inside runtime content — use a handle instead"
+    }
+  ],
+  "codename": [
+    {
+      "id": "internal_codename",
+      "severity": "warning",
+      "pattern": "(?:PROJECT|TEAM|INTERNAL)",
+      "message": "internal codename — meaningless outside the project"
+    }
+  ]
+}
+```
+
+Then run:
+
+```bash
+agent-pkg-audit . --rules ./my-project-rules.json
+```
+
+The `codename` category applies to everything; the `persona` category applies
+to runtime content only. A rule may also declare `"scope": "docs"` to target
+documentation specifically.
 
 ---
 

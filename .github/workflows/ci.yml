@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run test suite
+        run: bash test/run-tests.sh
+
+      - name: Audit this package with itself
+        run: python3 lib/audit_core.py .
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check node CLI entrypoint
+        run: |
+          node bin/agent-pkg-audit.js --version
+          node bin/agent-pkg-audit.js test/fixtures/clean-pkg
+
+      - name: Verify the dirty fixture is rejected
+        run: |
+          if node bin/agent-pkg-audit.js test/fixtures/dirty-pkg; then
+            echo "::error::dirty fixture should have exited non-zero"
+            exit 1
+          fi
+          echo "dirty fixture correctly rejected"
+
+      - name: Pack the tarball
+        run: npm pack
