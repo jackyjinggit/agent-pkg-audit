@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agent-pkg-audit · A pre-publish gate for agent packages</title>
+<meta name="description" content="Zero-dependency, read-only auditor for agent packages and agent repos. Catches secrets, PII, absolute local paths, manifest drift and broken skill references before you publish. Exits non-zero so CI can block a release.">
+<style>
+  :root{
+    --coral-50:#fff5f3; --coral-100:#ffe6e0; --coral-200:#ffcfc5; --coral-300:#ffb0a1;
+    --coral-400:#ff8a75; --coral-500:#f76f57; --coral-600:#e8543c; --coral-700:#c93f2a;
+    --cream:#fdfaf7; --paper:#fff; --ink-900:#2b2320; --ink-700:#5b4d47;
+    --ink-500:#8a7a72; --ink-300:#d9cec7; --line:#ece2dc;
+    --ok:#2e7d32; --warn:#e65100; --bad:#c62828;
+    --shadow:0 2px 10px rgba(184,120,100,.14);
+    --shadow-lg:0 6px 26px rgba(184,120,100,.20);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    background:var(--cream);color:var(--ink-900);line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px 80px}
+
+  /* hero */
+  .hero{position:relative;padding:72px 0 48px;overflow:hidden}
+  .hero::after{
+    content:"";position:absolute;right:-120px;top:-90px;width:420px;height:420px;border-radius:50%;
+    background:radial-gradient(circle at 40% 40%,rgba(255,176,161,.30),rgba(255,176,161,0) 70%);
+    pointer-events:none;
+  }
+  .eyebrow{
+    display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--coral-700);background:var(--coral-50);border:1px solid var(--coral-100);
+    padding:5px 13px;border-radius:999px;margin-bottom:20px;
+  }
+  h1{font-size:44px;line-height:1.12;font-weight:700;letter-spacing:-.02em;max-width:18ch}
+  h1 em{font-style:normal;background:linear-gradient(135deg,var(--coral-400),var(--coral-600));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{margin-top:18px;font-size:17px;color:var(--ink-700);max-width:62ch}
+  .install{
+    margin-top:26px;display:inline-flex;align-items:center;gap:14px;
+    background:var(--ink-900);color:#fff;border-radius:10px;padding:13px 20px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14.5px;
+  }
+  .install .cmd{background:transparent;border:none;color:#fff;font:inherit;cursor:pointer;padding:0}
+  .install .copy{font-size:12px;color:#ffb0a1;border-left:1px solid rgba(255,255,255,.22);padding-left:13px;font-family:inherit}
+
+  /* sections */
+  section{padding:52px 0;border-top:1px solid var(--line)}
+  h2{font-size:26px;font-weight:700;letter-spacing:-.01em;margin-bottom:8px}
+  h2 .num{color:var(--coral-400);font-variant-numeric:tabular-nums;margin-right:12px}
+  .sub{color:var(--ink-500);font-size:15px;margin-bottom:26px;max-width:66ch}
+
+  /* problem cards */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:20px 22px;box-shadow:var(--shadow)}
+  .card h3{font-size:15px;font-weight:700;margin-bottom:7px}
+  .card p{font-size:14px;color:var(--ink-700)}
+  .card .bad{color:var(--bad);font-weight:600}
+  .card .good{color:var(--ok);font-weight:600}
+
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:14px;background:var(--paper);border-radius:12px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line)}
+  th{background:var(--coral-50);color:var(--coral-700);text-align:left;padding:11px 16px;font-size:12px;letter-spacing:.05em;text-transform:uppercase;font-weight:700;border-bottom:1px solid var(--line)}
+  td{padding:12px 16px;border-bottom:1px solid var(--line);color:var(--ink-700);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td code,code{background:var(--coral-50);padding:2px 7px;border-radius:4px;font-size:12.5px;color:var(--coral-700);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+  /* terminal */
+  .term{background:#1c1614;border-radius:12px;overflow:hidden;box-shadow:var(--shadow-lg);margin-top:8px}
+  .term .bar{background:#2a221f;padding:11px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #3a2f2b}
+  .term .dot{width:11px;height:11px;border-radius:50%}
+  .term pre{margin:0;padding:20px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.75;color:#e8ddd8}
+  .t-b{color:#ff8a75}.t-g{color:#7fd18a}.t-y{color:#f0c674}.t-d{color:#7a6a63}.t-w{color:#fff
+
+  /* install block */
+  .install2{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:24px;box-shadow:var(--shadow)}
+  .install2 h3{font-size:15px;font-weight:700;margin-bottom:12px}
+  pre.code{background:var(--ink-900);color:#f0e6e0;padding:16px 18px;border-radius:9px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;line-height:1.7;margin:0 0 14px}
+  pre.code .c{color:#8a7a72}
+  pre.code .k{color:#ff8a75}
+
+  /* guarantees */
+  .g-list{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .g{background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--coral-400);border-radius:9px;padding:15px 18px;box-shadow:var(--shadow)}
+  .g b{display:block;font-size:14px;margin-bottom:4px}
+  .g span{font-size:13px;color:var(--ink-500)}
+
+  /* QR row */
+  .qr-row{display:flex;gap:20px;flex-wrap:wrap;margin-top:6px}
+  .qr{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:18px;text-align:center;box-shadow:var(--shadow);width:190px}
+  .qr img{width:130px;height:130px;display:block;margin:0 auto 10px}
+  .qr b{display:block;font-size:13.5px;margin-bottom:3px}
+  .qr span{font-size:11.5px;color:var(--ink-500);word-break:break-all}
+
+  /* footer */
+  footer{margin-top:20px;padding-top:32px;border-top:1px solid var(--line);font-size:13.5px;color:var(--ink-500)}
+  footer b{color:var(--ink-700)}
+  .links a{color:var(--coral-700);text-decoration:none;margin-right:16px;font-weight:600}
+  .links a:hover{text-decoration:underline}
+
+  @media (max-width:720px){
+    .grid2,.g-list{grid-template-columns:1fr}
+    h1{font-size:33px}
+    .hero{padding:44px 0 32px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="eyebrow">Open source · MIT · zero dependencies</span>
+  <h1>Catch the leak <em>before</em> you publish.</h1>
+  <p class="lede">
+    Agent packages ship prompts, tool definitions and configuration. One leaked email
+    address, one absolute path from your laptop, one skill reference to a directory
+    that no longer exists — and you find out after publishing.
+    <b>agent-pkg-audit</b> is a command-line gate that catches those first.
+    It exits non-zero, so CI can block a bad release.
+  </p>
+  <div class="install">
+    <span class="cmd" id="cmd">npx agent-pkg-audit ./my-agent-package</span>
+    <button class="copy" id="copy">copy</button>
+  </div>
+</header>
+
+<section>
+  <h2><span class="num">01</span>The problem</h2>
+  <p class="sub">
+    Every rule in this tool corresponds to a failure that actually happened while
+    running a multi-window agent system as a pre-publish gate.
+  </p>
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="bad">Before</span> — you find out too late</h3>
+      <p>A credential sits in a skill file. An absolute path points at one machine.
+      A manifest is missing a key, so the package loads on your box and silently
+      fails on everyone else's. The review happens after the release, if at all.</p>
+    </div>
+    <div class="card">
+      <h3><span class="good">After</span> — the gate runs first</h3>
+      <p>One command scans the whole package, prints what it found, and exits
+      <code>1</code> if anything is wrong. Put it in <code>prepublishOnly</code>
+      and a bad package can never reach the registry.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">02</span>What it checks</h2>
+  <p class="sub">Five passes over the package tree. Read-only, deterministic, no network calls.</p>
+  <table>
+    <thead><tr><th style="width:26%">Pass</th><th>What it catches</th></tr></thead>
+    <tbody>
+      <tr><td><b>A · Structure</b></td><td>Plugin manifest validity and required keys, agent files present, agent frontmatter carries <code>name</code> and <code>description</code>, agent body not empty</td></tr>
+      <tr><td><b>B · Secret / PII gate</b></td><td>Email addresses, hard-coded credentials, private key material, national ID numbers, absolute local paths. Matches next to an explicit redaction marker are ignored, so placeholders stay quiet</td></tr>
+      <tr><td><b>C · Portability</b></td><td>Harness-specific coupling — warns when a package only runs on one agent platform</td></tr>
+      <tr><td><b>D · Integrity</b></td><td>If a <code>MANIFEST.json</code> is present, every listed file is SHA256-verified against it</td></tr>
+      <tr><td><b>E · Static fault proxies</b></td><td>The statically-detectable subset of a 15-class multi-agent failure taxonomy: role ambiguity, broken cross-references, configuration faults, instruction drift</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2><span class="num">03</span>See it work</h2>
+  <p class="sub">A package with one missing manifest key, one email, one absolute path, one pasted key, one unfinished marker and two dangling skill references:</p>
+  <div class="term">
+    <div class="bar">
+      <span class="dot" style="background:#ff5f57"></span>
+      <span class="dot" style="background:#febc2e"></span>
+      <span class="dot" style="background:#28c840"></span>
+      <span style="margin-left:10px;font-size:12px;color:#8a7a73;font-family:ui-monospace,monospace">agent-pkg-audit</span>
+    </div>
+<pre><span class="t-d"># agent-pkg-audit report</span>
+<span class="t-d">&gt; repository:</span> /work/my-agent-package
+<span class="t-d">&gt; packages detected:</span> <span class="t-w">1</span>
+
+<span class="t-b">## A. Package structure</span>
+- (repo root)  <span class="t-b">BLOCK</span>  manifest missing name,description
+
+<span class="t-b">## B. Secret / PII gate | C. Portability | E. Static fault proxies</span>
+- <span class="t-b">BLOCK</span>  agents/assistant.md -&gt; [email] reviewer@realvendor-partners.cn
+- <span class="t-b">BLOCK</span>  agents/assistant.md -&gt; [abs_windows_path] C:\Users\example\Documents\vault
+- <span class="t-b">BLOCK</span>  agents/assistant.md -&gt; [secret_assignment] API_KEY = "sk-live-9f3a..."
+- <span class="t-y">WARN </span>  agents/assistant.md -&gt; [harness_coupling] ~/.workbuddy
+- <span class="t-y">WARN </span>  agents/assistant.md -&gt; [drift] unfinished marker: TODO
+- <span class="t-y">WARN </span>  agents/assistant.md -&gt; [broken-xref] skills[nonexistent-skill] directory does not exist
+
+<span class="t-b">## Summary</span>
+- packages: <span class="t-w">1</span>
+- blockers: <span class="t-b">4</span>
+- warnings: <span class="t-y">4</span>
+
+<span class="t-b">&gt; exit 1</span> <span class="t-d">(blockers found — fix before publishing)</span></pre>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">04</span>Install &amp; use</h2>
+  <p class="sub">One command, no install-time dependencies, works on Linux, macOS and Windows.</p>
+  <div class="install2">
+    <h3>Run it once</h3>
+<pre class="code"><span class="c"># via npx, no install</span>
+npx agent-pkg-audit ./my-agent-package
+
+<span class="c"># or install globally</span>
+npm install -g agent-pkg-audit
+agent-pkg-audit ./my-agent-package</pre>
+
+    <h3 style="margin-top:22px">Wire it into CI</h3>
+<pre class="code"><span class="c"># .github/workflows/release.yml</span>
+- name: Audit agent package
+  run: npx agent-pkg-audit . --report audit-report.md</pre>
+
+    <h3 style="margin-top:22px">Or make it impossible to publish a bad package</h3>
+<pre class="code"><span class="c">// package.json</span>
+{
+  <span class="k">"scripts"</span>: {
+    <span class="k">"prepublishOnly"</span>: <span class="k">"agent-pkg-audit ."</span>
+  }
+}</pre>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">05</span>Custom rules</h2>
+  <p class="sub">
+    Rules are plain JSON. Copy <code>rules/default.json</code>, edit it, pass it with
+    <code>--rules</code>. Later files win on rule <code>id</code>, so you can override a
+    default or add your own — without touching the tool.
+  </p>
+  <div class="install2">
+<pre class="code">{
+  <span class="k">"pii"</span>: [
+    {
+      <span class="k">"id"</span>: <span class="k">"internal_codename"</span>,
+      <span class="k">"severity"</span>: <span class="k">"blocker"</span>,
+      <span class="k">"pattern"</span>: <span class="k">"(?i)project\\s+[\\u4e00-\\u9fa5]{2,6}"</span>,
+      <span class="k">"message"</span>: <span class="k">"internal codename leaked"</span>,
+      <span class="k">"except"</span>: [<span class="k">"\\bexample\\b"</span>]
+    }
+  ]
+}</pre>
+    <p style="font-size:13.5px;color:var(--ink-500);margin-top:14px">
+      <b style="color:var(--ink-700)">severity</b> — <code>blocker</code> exits 1, <code>warning</code> exits 0 &nbsp;·&nbsp;
+      <b style="color:var(--ink-700)">except</b> — a match is ignored if any of these regexes matches it
+    </p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">06</span>Design guarantees</h2>
+  <p class="sub">Four properties, and they are testable — the package passes its own gate in CI.</p>
+  <div class="g-list">
+    <div class="g"><b>Read only</b><span>The tool never writes to the audited tree. <code>--report</code> writes only to the path you give it.</span></div>
+    <div class="g"><b>Zero dependencies</b><span>Python standard library only. No <code>pip install</code>, no transitive supply chain.</span></div>
+    <div class="g"><b>Deterministic</b><span>Same input, same output, same exit code. No network calls, no clock, no randomness.</span></div>
+    <div class="g"><b>Portable</b><span>Runs on Linux, macOS and Windows. Ships as an npm package with a Python fallback.</span></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">07</span>Get it</h2>
+  <p class="sub">Scan the QR codes, or use the links.</p>
+  <div class="qr-row">
+    <div class="qr">
+      <img alt="QR code linking to the GitHub repository" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0AQMAAADxGE3JAAAABlBMVEX///8AAABVwtN+AAAACXBIWXMAAA7EAAAOxAGVKw4bAAACcklEQVR4nO3cMXLjMAyFYWhSuNQRfBQdTT4aj6IjuEzhCdcgCQh05J3dKqPwf02yFD9uhxFIKiLkR/ORu2zPoUt+2NM1J7n6wy+RfvYDj8ef2/tkkeXp5zI+6WP1uQ19PmcWf/PZFzwej59qNUnF63grNjXXfBcvSurX8vyOx+PxL97qTyg2c1lB8Hg8/u9eo68qZVD9tU3OtiQej8e/639aq6OxqT74L/0THo8/je+y+6nuf6TSvwQfg8fjh/ZvM9n+ad67l/8JHo//9T7UH+1fLF/W1NSSdI9L3vw9B4/HD+19hVv5x9X2NWre3P9I5WGbh8fjR/Vef9Qv2fZFS/WRNqT5FImLevB4/Mg+nL9o5ga6+x/1UNfTvf/g8fjz+i6byF4/bGjuX0qszggejx/dP+yqxhKalZf7Gy9Jhfb3P/B4/HBeM9lR7dLqT/BL3u9/5NrSrGWNcCiDx+NH9X6vI4m0/VPvfnTqVn675BCdGc5f8Hj8uD5ki1sl+5Bvqtr5bVd/8Hj8mL7dX9eJqS1YS03Yf60JmyppP+fF4/Hn9qFV6fqa7NHBcP+8+hI8Hj+2l33cBg+/X8n1/6kJ5794PB6fa7Oi41OcPLdNEU9qLzUPPB4/sv+Wg7/fI+Lfz2pWXwePxw/tD7+/10z2/aztn377+z0leDx+ZB+K0PKc3GWf2nwdTOVn3L/F4/En9a1ZSe27lJz9/pel7p96js5f8Hg83rZKw/nt3Rf1OlWDx+PxvT+Y+rJ/WlP6HDweP7aXffIm3af2a87eErXvV+r9Ud8nwePxI/su9v5S6k8tSiLh+3urVOH+GB6PH9WTH80fonQ+J0dEwmkAAAAASUVORK5CYII=">
+      <b>GitHub</b>
+      <span>jackyjinggit/agent-pkg-audit</span>
+    </div>
+    <div class="qr">
+      <img alt="QR code linking to the npm package page" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0AQMAAADxGE3JAAAABlBMVEX///8AAABVwtN+AAAACXBIWXMAAA7EAAAOxAGVKw4bAAAChElEQVR4nO3cPXLjMAyGYXpcuPQRdBQdLToaj6IjuEyhMVcECBDyT2a3ymj5fp1pPkqHIQE5KZFfzbnssmxLl7Lat18lp6ncZbGUR0r73Ssejz+2980p3TZ/lfVT/VqXyuav5XvbKX723Rc8Ho8/aTXJ4rXUSLGJvlj9mbeiVGQRj8fj997qTzus5O0ZV9uMx+PxP/maelSRxVmLUHsoHo/HP3uP1p921dHN+sh/uj/h8fjD+F26P9X+h/VPg4/B4/FD+49pvuYuC2drifxd8Hj8f+9D/cnSLNU87FJT2hMues+pj5z9nIPH44f2qZ9L8vZhku27c8nk85fwl2paSxWPx4/qa/15WKukxkuNRUcyb/onSf86Ho8f2XuyLIX3P6x/YouST+cfPB5/MB/6GrdSZNii9SMUi/D+Rt95tw94PH5c31qldTXLR/2pir+/MXnhedj7G7ZvxePxI/tz74vmVldCqfly+60nHeufev3B4/Hj+hY7qkyyteZpfhvmL3pP8vsPHo8f1bf+Saw/eiXyDuoi9x/PS/3C4/Eje++f5JSS/1TWUvuvL/Pbyc45eDz+yF4uK/bN0pBUD31oKfd+WKnLc3uoBI/H4yW9rpzezW/b0tP9BY/Hj+x91HIL81vP0ua3IbkNZVY8Hj+yf4ndf3woM5Xw+1mrQAWPx+Pf/v6+JsxfSqs//v6HLknwePzIfvde6ZLCVUf9kmynL+ZO8Hj8sX27rGTx4b2OXlJ0KOvpfRI8Ho+PXuMTXL2/+JK9v1GDx+Pxr37X6rC3v0JTtUbqFB6PH9t77Pzi/3+0ps9vW+Z4zsHj8SP7XbT+hPltTjaSWff153P/FY/HD+LJr+YPzfyKYJW1FtMAAAAASUVORK5CYII=">
+      <b>npm</b>
+      <span>npmjs.com/package/agent-pkg-audit</span>
+    </div>
+  </div>
+  <p class="links" style="margin-top:26px;font-size:14px">
+    <a href="https://github.com/jackyjinggit/agent-pkg-audit">Source on GitHub</a>
+    <a href="https://www.npmjs.com/package/agent-pkg-audit">Package on npm</a>
+    <a href="https://github.com/jackyjinggit">More by Jacky Jiang</a>
+  </p>
+</section>
+
+<footer>
+  <b>agent-pkg-audit</b> · MIT licensed · v0.1.0<br>
+  Derived from a production governance toolkit that has been running as a pre-publish
+  gate on a multi-window agent system since August 2026. Every rule corresponds to a
+  failure mode observed in the wild.<br>
+  <span style="display:inline-block;margin-top:10px">Build by <a href="https://jackyjinggit.github.io/personal-home/" style="color:var(--coral-700);font-weight:600">Jacky Jiang</a> · independent researcher working on human-AI collaboration methodology.</span>
+</footer>
+
+</div>
+
+<script>
+  document.getElementById('copy').addEventListener('click', function () {
+    var text = document.getElementById('cmd').textContent;
+    var btn = this;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = 'copied';
+        setTimeout(function () { btn.textContent = 'copy'; }, 1600);
+      });
+    } else {
+      btn.textContent = text;
+    }
+  });
+</script>
+</body>
+</html>

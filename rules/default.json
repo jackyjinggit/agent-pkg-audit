@@ -1,0 +1,55 @@
+{
+  "pii": [
+    {
+      "id": "email",
+      "severity": "blocker",
+      "pattern": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+      "message": "email address",
+      "except": [
+        "@[\\w.-]*\\.local$",
+        "@example\\.(com|org|net)$",
+        "@users\\.noreply\\.github\\.com$",
+        "@company\\.internal$",
+        "@internal\\.example$"
+      ]
+    },
+    {
+      "id": "abs_windows_path",
+      "severity": "blocker",
+      "pattern": "[A-Za-z]:\\\\+[^\\s\"'`]*",
+      "message": "absolute Windows path"
+    },
+    {
+      "id": "abs_posix_home_path",
+      "severity": "blocker",
+      "pattern": "/(?:home|Users)/[A-Za-z0-9._-]+/[^\\s\"'`]*",
+      "message": "absolute home path"
+    },
+    {
+      "id": "secret_assignment",
+      "severity": "blocker",
+      "pattern": "(?i)\\b(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password|passwd|bearer)\\b\\s*[:=]\\s*[\"']?[A-Za-z0-9_\\-]{16,}",
+      "message": "possible hard-coded secret"
+    },
+    {
+      "id": "private_key_block",
+      "severity": "blocker",
+      "pattern": "-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----",
+      "message": "private key material"
+    },
+    {
+      "id": "cn_id_card",
+      "severity": "blocker",
+      "pattern": "\\b[1-9]\\d{5}(?:19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[\\dXx]\\b",
+      "message": "national ID number"
+    }
+  ],
+  "portability": [
+    {
+      "id": "harness_coupling",
+      "severity": "warning",
+      "pattern": "(?:~/\\.workbuddy|\\.workbuddy/skills|\\.claude/(?:agents|commands|skills)|\\.codebuddy-plugin|opencode_agents\\.json)",
+      "message": "harness-specific coupling — package is not fully portable"
+    }
+  ]
+}

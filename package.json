@@ -1,0 +1,51 @@
+{
+  "name": "agent-pkg-audit",
+  "version": "0.1.0",
+  "description": "Zero-dependency, read-only pre-publish gate for agent packages and agent repos: scans for secrets, PII, absolute local paths, manifest drift, broken skill references and instruction drift. Exits non-zero so CI can block a release.",
+  "keywords": [
+    "agent",
+    "agent-package",
+    "audit",
+    "lint",
+    "pii",
+    "secret-scanner",
+    "governance",
+    "guardrails",
+    "pre-publish",
+    "ci"
+  ],
+  "homepage": "https://github.com/jackyjinggit/agent-pkg-audit",
+  "bugs": {
+    "url": "https://github.com/jackyjinggit/agent-pkg-audit/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jackyjinggit/agent-pkg-audit.git"
+  },
+  "license": "MIT",
+  "author": "Ping Jiang",
+  "bin": {
+    "agent-pkg-audit": "bin/agent-pkg-audit.js"
+  },
+  "main": "lib/audit_core.py",
+  "files": [
+    "bin/",
+    "lib/",
+    "rules/",
+    "skills/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "scripts": {
+    "audit": "node bin/agent-pkg-audit.js .",
+    "test": "node bin/agent-pkg-audit.js test/fixtures/clean-pkg",
+    "selfcheck": "node bin/agent-pkg-audit.js ."
+  },
+  "dependencies": {},
+  "publishConfig": {
+    "access": "public"
+  }
+}

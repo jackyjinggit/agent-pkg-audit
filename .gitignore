@@ -1,0 +1,7 @@
+node_modules/
+*.tgz
+audit-report.md
+__pycache__/
+*.pyc
+site/qr-*.png
+site/qr-*.b64
