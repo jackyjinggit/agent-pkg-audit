@@ -68,9 +68,20 @@ DEFAULT_RULES = {
         {
             "id": "abs_windows_path",
             "severity": "blocker",
+            # A path that reaches a '<...>' placeholder is a documentation
+            # template, not a real location. Capture the whole segment so the
+            # placeholder check can see it.
             "pattern": r"[A-Za-z]:\\+[^\s\"'`]*",
             "message": "absolute Windows path",
-            "except": [r"^[A-Za-z]:\\\$", r"^[A-Za-z]:\\\$\{", r"^[A-Za-z]:\\\.\.\."],
+            "except": [
+                r"^[A-Za-z]:\\\$",
+                r"^[A-Za-z]:\\\$\{",
+                r"^[A-Za-z]:\\\.\.\.",
+                # documentation placeholders: <你的用户名>, <wxid>, <output-dir>
+                r"<[^>]*>",
+                r"^[A-Za-z]:\\Users\\\.\.\.",
+                r"^[A-Za-z]:\\Users\\[^\\]*\.\.\.",
+            ],
         },
         {
             "id": "abs_posix_home_path",
@@ -283,9 +294,12 @@ def scan_text(text, rel, rules, runtime=False):
                 continue
             for match in rule["_re"].finditer(text):
                 snippet = match.group(0)
-                if any(rx.search(snippet) for rx in rule["_except_res"]):
+                window = text[max(0, match.start() - 48): match.end() + 48]
+                # `except` is matched against the matched text OR the
+                # surrounding context — so a rule can exempt an occurrence
+                # that appears next to a known-safe marker.
+                if any(rx.search(snippet) or rx.search(window) for rx in rule["_except_res"]):
                     continue
-                window = text[max(0, match.start() - 32): match.end() + 32]
                 if any(tok in window for tok in ALLOWED_TOKENS):
                     continue
                 entry = (rule["id"], rel, snippet[:120], rule.get("message", ""))

@@ -20,7 +20,14 @@
       "severity": "blocker",
       "pattern": "[A-Za-z]:\\\\+[^\\s\"'`]*",
       "message": "absolute Windows path",
-      "except": ["^[A-Za-z]:\\\\\\$", "^[A-Za-z]:\\\\\\$\\{", "^[A-Za-z]:\\\\\\.\\.\\."]
+      "except": [
+        "^[A-Za-z]:\\\\\\$",
+        "^[A-Za-z]:\\\\\\$\\{",
+        "^[A-Za-z]:\\\\\\.\\.\\.",
+        "<[^>]*>",
+        "^[A-Za-z]:\\\\Users\\\\\\.\\.\\.",
+        "^[A-Za-z]:\\\\Users\\\\[^\\\\]*\\.\\.\\."
+      ]
     },
     {
       "id": "abs_posix_home_path",
